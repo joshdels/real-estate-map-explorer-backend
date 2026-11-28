@@ -31,8 +31,11 @@ When the frontend is opened as `http://127.0.0.1:3000`, add that exact origin to
 
 `GET /api/v1/dataset` is public and returns the whole validated dataset JSON document.
 
-`PUT /api/v1/dataset` replaces that document and is limited to authenticated users whose role is
-`administrator` or `employee`. The body and response use the same shape:
+`PUT /api/v1/dataset` replaces that document. Administrators and employees may replace all of it.
+During this blob migration stage, a client request is accepted only when changes are limited to its
+assigned provider plus properties and groups with the same `providerId`. Shared settings, reviews,
+and other providers' records must remain byte-for-byte equivalent. The body and response use the
+same shape:
 
 ```json
 {
@@ -64,3 +67,14 @@ only added when `ENABLE_SOCIAL_AUTH=true`:
 
 JWT access and refresh tokens use HTTP-only cookies. Production secrets, OAuth credentials, and
 database credentials belong only in backend environment variables.
+
+## Local test identities
+
+After `make migrate`, run `make seed-local`. It imports the sibling frontend's fictional dataset and
+creates three repeatable local accounts with password `LocalDemo123!`:
+
+- `admin@example.test`, administrator
+- `staff@example.test`, employee
+- `provider@example.test`, client assigned to `provider-coastal`
+
+These identities and their password are development fixtures, not production defaults.

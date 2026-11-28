@@ -11,18 +11,23 @@ make migrate
 make run
 ```
 
-Django reads environment variables from the process. Export the values from `.env` with your preferred local shell tool; the project does not add a second settings loader.
+The Makefile loads the ignored local `.env` automatically. Direct `uv run python manage.py ...`
+commands do not load it, so either use the documented `make` targets or export the variables first.
 
-Seed the Stage 1 blob from the frontend repository:
+Seed the Stage 1 blob and local-only email accounts from the frontend repository:
 
 ```bash
-uv run python manage.py seed_dataset ../real-estate-map-explorer/public/data/data.json
+make seed-local
 ```
+
+This imports all fictional listing data, coordinates, and polygons. It also creates
+`admin@example.test`, `staff@example.test`, and `provider@example.test`; each uses the local-only
+password `LocalDemo123!`. The provider account is assigned to `provider-coastal`.
 
 ## API
 
 - `GET /api/v1/dataset` is public and returns the current dataset JSON.
-- `PUT /api/v1/dataset` requires an administrator or employee. Clients must wait for granular listing endpoints because whole-blob writes cannot enforce listing ownership safely.
+- `PUT /api/v1/dataset` lets staff replace the document. During this temporary blob stage, a client may change only its assigned provider record and records whose `providerId` matches the account.
 - `/api/v1/auth/` provides login, logout, password reset, user details, and refresh-cookie endpoints.
 - `/api/v1/auth/registration/` provides email registration and verification.
 - Email/password registration and login are the active authentication path.
@@ -65,6 +70,7 @@ and Meta consoles before sign-in can work.
 ## Commands
 
 - `make migrations` and `make migrate`
+- `make seed-local`
 - `make check`
 - `make test`
 - `make lint`

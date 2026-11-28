@@ -6,7 +6,11 @@ from rest_framework.views import APIView
 
 from .models import AppDataset
 from .permissions import CanReplaceDataset
-from .serializers import DatasetPayloadSerializer, DatasetSerializer
+from .serializers import (
+    DatasetPayloadSerializer,
+    DatasetSerializer,
+    validate_client_replacement,
+)
 
 
 class DatasetView(APIView):
@@ -34,16 +38,22 @@ class DatasetView(APIView):
         operation_id="dataset_replace",
         summary="Replace the shared dataset",
         description=(
-            "Replaces the whole temporary dataset blob. Only authenticated administrators and "
-            "employees may use this migration-stage endpoint."
+            "Replaces the temporary dataset blob. Staff may replace it; clients may change only "
+            "records owned by their assigned provider."
         ),
         request=DatasetPayloadSerializer,
         responses={200: DatasetPayloadSerializer},
         tags=["dataset"],
     )
     def put(self, request):
-        dataset = AppDataset.objects.order_by("pk").first()
+        dataset = self.get_object()
         serializer = DatasetSerializer(dataset, data={"payload": request.data})
         serializer.is_valid(raise_exception=True)
+        if request.user.role == "client":
+            validate_client_replacement(
+                dataset.payload,
+                serializer.validated_data["payload"],
+                request.user.provider_id,
+            )
         saved = serializer.save()
         return Response(saved.payload)

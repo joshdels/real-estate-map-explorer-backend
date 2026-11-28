@@ -49,6 +49,34 @@ def validate_dataset_payload(payload):
     return payload
 
 
+def validate_client_replacement(current, replacement, provider_id):
+    """Allow a blob-stage client to change only records owned by its provider."""
+    if not provider_id:
+        raise serializers.ValidationError("This client account has no provider profile.")
+
+    owned_collections = ("properties", "groups")
+    for key in owned_collections:
+        old_foreign = [item for item in current[key] if item.get("providerId") != provider_id]
+        new_foreign = [item for item in replacement[key] if item.get("providerId") != provider_id]
+        if old_foreign != new_foreign:
+            raise serializers.ValidationError({key: "You may change only your provider records."})
+
+    old_foreign_providers = [item for item in current["providers"] if item.get("id") != provider_id]
+    new_foreign_providers = [
+        item for item in replacement["providers"] if item.get("id") != provider_id
+    ]
+    if old_foreign_providers != new_foreign_providers:
+        raise serializers.ValidationError(
+            {"providers": "You may change only your assigned provider profile."}
+        )
+
+    for key in replacement.keys() | current.keys():
+        is_shared_change = current.get(key) != replacement.get(key)
+        if key not in {*owned_collections, "providers"} and is_shared_change:
+            raise serializers.ValidationError({key: "Clients may not change this shared data."})
+    return replacement
+
+
 class DatasetSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppDataset

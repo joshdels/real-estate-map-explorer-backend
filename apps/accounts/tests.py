@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
@@ -28,3 +29,16 @@ class AuthenticationRouteTests(APITestCase):
             self.client.post("/api/v1/auth/facebook/", {}, format="json").status_code,
             404,
         )
+
+
+class LocalAccountCommandTests(TestCase):
+    def test_seed_local_accounts_is_repeatable_and_assigns_provider(self):
+        call_command("seed_local_accounts", verbosity=0)
+        call_command("seed_local_accounts", verbosity=0)
+
+        user_model = get_user_model()
+        self.assertEqual(user_model.objects.count(), 3)
+        provider = user_model.objects.get(email="provider@example.test")
+        self.assertEqual(provider.role, "client")
+        self.assertEqual(provider.provider_id, "provider-coastal")
+        self.assertTrue(provider.check_password("LocalDemo123!"))
