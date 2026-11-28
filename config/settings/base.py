@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -18,6 +19,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.sites",
+    "django.contrib.gis",
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
@@ -31,6 +33,7 @@ INSTALLED_APPS = [
     "dj_rest_auth.registration",
     "apps.accounts.apps.AccountsConfig",
     "apps.datasets.apps.DatasetsConfig",
+    "apps.media_uploads.apps.MediaUploadsConfig",
 ]
 
 MIDDLEWARE = [
@@ -63,6 +66,9 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+# Lot boundaries are stored as real PostGIS geometry, so the default engine is
+# GeoDjango's PostGIS backend. A sqlite fallback keeps `manage.py check` usable
+# without a database, but spatial features require PostgreSQL + PostGIS.
 DATABASES = {
     "default": dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
@@ -70,6 +76,8 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+if DATABASES["default"].get("ENGINE") == "django.db.backends.postgresql":
+    DATABASES["default"]["ENGINE"] = "django.contrib.gis.db.backends.postgis"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -83,6 +91,20 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "")
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "ap-southeast-1")
+    AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", "") or None
+    AWS_QUERYSTRING_AUTH = False
+    AWS_DEFAULT_ACL = None
+    AWS_S3_FILE_OVERWRITE = False
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3.S3Storage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
@@ -107,6 +129,16 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+# The default access token lives only 5 minutes. With the cookie-based flow the
+# frontend keeps a visible session far longer, so a short access token made
+# authenticated writes (e.g. saving edited lot boundaries) silently fail once it
+# expired. Give the access token a usable lifetime and rotate the refresh token.
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+}
+
 REST_AUTH = {
     "USE_JWT": True,
     "JWT_AUTH_COOKIE": "open_lot_access",

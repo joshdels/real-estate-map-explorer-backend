@@ -27,13 +27,19 @@ password `LocalDemo123!`. The provider account is assigned to `provider-coastal`
 ## API
 
 - `GET /api/v1/dataset` is public and returns the current dataset JSON.
-- `PUT /api/v1/dataset` lets staff replace the document. During this temporary blob stage, a client may change only its assigned provider record and records whose `providerId` matches the account.
+- `PUT /api/v1/dataset` lets staff replace the document. During this temporary blob stage, a client may change only its assigned provider record and records whose `providerId` matches the account. On every save the listing polygons are mirrored into the PostGIS `datasets_lotgeometry` table (one real `Polygon` geometry per listing, SRID 4326), so saved and edited plot points persist as spatial data, not only inside the JSON blob.
+- `GET /api/v1/lots.geojson` is public and returns every stored lot boundary from PostGIS as a GeoJSON FeatureCollection.
+
+This app now requires **PostgreSQL with the PostGIS extension** (GeoDjango). `DATABASE_URL` must point at a PostGIS-enabled database; the `postgis` extension and the geometry table are created by the `datasets` migrations. GDAL and GEOS must be available on the host.
+- `POST /api/v1/media/images` accepts authenticated JPEG, PNG, and WebP property images up to 10 MB. Local development stores them under `media/`; production stores them in S3.
 - `/api/v1/auth/` provides login, logout, password reset, user details, and refresh-cookie endpoints.
 - `/api/v1/auth/registration/` provides email registration and verification.
 - Email/password registration and login are the active authentication path.
 - Google and Facebook login are parked by default. Set `ENABLE_SOCIAL_AUTH=true` later to expose their provider-token endpoints.
 
 JWT access and refresh tokens are stored in HTTP-only cookies. For production, use the frontend and API on same-site subdomains when possible.
+
+Production media storage requires `AWS_STORAGE_BUCKET_NAME`. Configure `AWS_S3_REGION_NAME` and optionally `AWS_S3_CUSTOM_DOMAIN`; AWS credentials use the standard boto3 environment or instance-role chain. The S3 bucket must allow the resulting public media URLs to be read by buyers.
 
 ### API documentation
 

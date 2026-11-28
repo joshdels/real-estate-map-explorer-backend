@@ -1,10 +1,14 @@
-from django.http import Http404
+import json
+
+from django.core.serializers import serialize
+from django.http import Http404, HttpResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AppDataset
+from .geometry import sync_lot_geometries
+from .models import AppDataset, LotGeometry
 from .permissions import CanReplaceDataset
 from .serializers import (
     DatasetPayloadSerializer,
@@ -56,4 +60,33 @@ class DatasetView(APIView):
                 request.user.provider_id,
             )
         saved = serializer.save()
+        # Mirror every listing boundary into PostGIS so saved/edited plot points
+        # persist as real geometry, not only inside the JSON blob.
+        sync_lot_geometries(saved.payload)
         return Response(saved.payload)
+
+
+class LotGeometryGeoJSONView(APIView):
+    """Publicly serves every stored lot boundary as a GeoJSON FeatureCollection."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="lot_geometries_geojson",
+        summary="Get lot boundaries as GeoJSON",
+        description="Returns all stored listing boundaries from PostGIS as GeoJSON features.",
+        responses={200: {"type": "object"}},
+        auth=[],
+        tags=["dataset"],
+    )
+    def get(self, request):
+        collection = serialize(
+            "geojson",
+            LotGeometry.objects.all(),
+            geometry_field="geom",
+            fields=("listing_id", "title"),
+        )
+        return HttpResponse(
+            json.dumps(json.loads(collection)),
+            content_type="application/geo+json",
+        )

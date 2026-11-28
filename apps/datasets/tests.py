@@ -2,9 +2,27 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from .models import AppDataset
+from .geometry import polygon_from_points, sync_lot_geometries
+from .models import AppDataset, LotGeometry
 
 VALID_DATASET = {"properties": [], "providers": [], "groups": [], "reviews": []}
+
+# A small square boundary as frontend [lat, lng] points.
+SQUARE = [[10.0, 122.0], [10.0, 122.001], [10.001, 122.001], [10.001, 122.0]]
+
+
+def listing_with_polygon(listing_id, polygon):
+    return {
+        "id": listing_id,
+        "title": f"Lot {listing_id}",
+        "address": "Sample Road",
+        "coordinates": [polygon[0][0], polygon[0][1]],
+        "polygon": polygon,
+        "area": "600 sqm",
+        "price": 1600000,
+        "status": "Available",
+        "utilities": [],
+    }
 
 
 class DatasetApiTests(APITestCase):
@@ -125,3 +143,51 @@ class ApiDocumentationTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("api-schema"))
+
+
+class LotGeometryTests(APITestCase):
+    def setUp(self):
+        self.url = reverse("datasets:dataset")
+        self.geojson_url = reverse("datasets:lots-geojson")
+        self.dataset = AppDataset.objects.create(payload=VALID_DATASET)
+
+    def test_polygon_from_points_converts_lat_lng_to_lng_lat(self):
+        polygon = polygon_from_points(SQUARE)
+        self.assertIsNotNone(polygon)
+        self.assertEqual(polygon.srid, 4326)
+        # First point [lat=10.0, lng=122.0] becomes (x=lng, y=lat).
+        self.assertAlmostEqual(polygon.coords[0][0][0], 122.0)
+        self.assertAlmostEqual(polygon.coords[0][0][1], 10.0)
+
+    def test_polygon_from_points_rejects_degenerate_rings(self):
+        self.assertIsNone(polygon_from_points([[10.0, 122.0], [10.0, 122.0]]))
+        self.assertIsNone(polygon_from_points("not points"))
+
+    def test_sync_upserts_and_prunes_geometries(self):
+        sync_lot_geometries({"properties": [listing_with_polygon("lot-a", SQUARE)]})
+        self.assertEqual(LotGeometry.objects.count(), 1)
+        self.assertTrue(LotGeometry.objects.filter(listing_id="lot-a").exists())
+
+        # Removing the listing from a later save prunes its geometry.
+        sync_lot_geometries({"properties": []})
+        self.assertEqual(LotGeometry.objects.count(), 0)
+
+    def test_staff_put_persists_edited_points_to_postgis(self):
+        user = get_user_model().objects.create_user(
+            "staff@example.test", "password", role="employee"
+        )
+        self.client.force_authenticate(user)
+        payload = {**VALID_DATASET, "properties": [listing_with_polygon("lot-a", SQUARE)]}
+        response = self.client.put(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 200)
+        lot = LotGeometry.objects.get(listing_id="lot-a")
+        self.assertEqual(lot.geom.srid, 4326)
+
+    def test_geojson_endpoint_is_public_feature_collection(self):
+        sync_lot_geometries({"properties": [listing_with_polygon("lot-a", SQUARE)]})
+        response = self.client.get(self.geojson_url)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["type"], "FeatureCollection")
+        self.assertEqual(len(body["features"]), 1)
+        self.assertEqual(body["features"][0]["geometry"]["type"], "Polygon")

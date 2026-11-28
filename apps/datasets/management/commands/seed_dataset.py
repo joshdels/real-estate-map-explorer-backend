@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.datasets.geometry import sync_lot_geometries
 from apps.datasets.models import AppDataset
 from apps.datasets.serializers import validate_dataset_payload
 
@@ -27,4 +28,10 @@ class Command(BaseCommand):
         else:
             dataset.payload = payload
             dataset.save(update_fields=["payload", "updated_at"])
-        self.stdout.write(self.style.SUCCESS(f"Seeded dataset from {source}"))
+        summary = sync_lot_geometries(payload)
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Seeded dataset from {source} "
+                f"({summary['written']} lot geometries written, {summary['removed']} removed)"
+            )
+        )
